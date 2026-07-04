@@ -70,6 +70,30 @@
   .answer::-webkit-scrollbar-thumb { background:#c7cfdb; border-radius:6px; }
   .answer a { color:var(--accentA); text-decoration:none; border-bottom:1px solid #b9d3f0; }
   .answer a:hover { border-bottom-color:var(--accentA); }
+  /* rendered-markdown variant: normal flow (block tags carry the spacing) */
+  .answer.md { white-space:normal; line-height:1.6; }
+  .answer.md > :first-child { margin-top:0; }
+  .answer.md > :last-child { margin-bottom:0; }
+  .answer.md h1,.answer.md h2,.answer.md h3,.answer.md h4 {
+    margin:14px 0 6px; line-height:1.3; font-weight:700; }
+  .answer.md h1 { font-size:17px; } .answer.md h2 { font-size:15.5px; }
+  .answer.md h3 { font-size:14.5px; } .answer.md h4 { font-size:14px; color:var(--muted); }
+  .answer.md p { margin:8px 0; }
+  .answer.md ul,.answer.md ol { margin:6px 0; padding-left:22px; }
+  .answer.md li { margin:2px 0; }
+  .answer.md code { background:#eef1f4; padding:1px 5px; border-radius:4px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:12.5px; }
+  .answer.md pre { background:#f4f6f9; border:1px solid var(--line); border-radius:8px;
+    padding:10px 12px; overflow:auto; margin:8px 0; }
+  .answer.md pre code { background:none; padding:0; font-size:12.5px; }
+  .answer.md blockquote { margin:8px 0; padding:2px 12px; border-left:3px solid #c7cfdb;
+    color:var(--muted); }
+  .answer.md hr { border:0; border-top:1px solid var(--line); margin:12px 0; }
+  .answer.md table { border-collapse:collapse; margin:8px 0; font-size:13px; width:100%; }
+  .answer.md th,.answer.md td { border:1px solid var(--line); padding:5px 9px; text-align:left;
+    vertical-align:top; }
+  .answer.md th { background:#f1f4f8; font-weight:600; }
+  .answer.md tbody tr:nth-child(even),.answer.md tbody tr:nth-child(even) { background:#fafbfd; }
   .rate { padding:18px 22px; border-top:1px solid var(--line);
     background:linear-gradient(180deg,#fbfcfe,#f5f7fb); }
   .rate-grid { display:grid; grid-template-columns:1fr 1fr; gap:0 28px; }
@@ -166,9 +190,61 @@ const answers = {};
 const VLABEL = {1:'1 · 很差',2:'2 · 较差',3:'3 · 一般',4:'4 · 较好',5:'5 · 很好'};
 
 function esc(s){ const d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
-function linkify(s){
-  return esc(s).replace(/(https?:\/\/[^\s<>"')]+)/g,
-    '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
+function mdInline(s){
+  s = esc(s);
+  s = s.replace(/`([^`]+)`/g, (m,c)=>'<code>'+c+'</code>');
+  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  s = s.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
+  s = s.replace(/(^|[\s(])(https?:\/\/[^\s<>"')]+)/g,
+    '$1<a href="$2" target="_blank" rel="noopener noreferrer">$2</a>');
+  return s;
+}
+function mdRender(src){
+  const lines = String(src).replace(/\r\n?/g,'\n').split('\n');
+  let html='', i=0;
+  const isTableSep = l => /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$/.test(l);
+  const cells = l => l.replace(/^\s*\|/,'').replace(/\|\s*$/,'').split('|').map(c=>c.trim());
+  while(i<lines.length){
+    let l = lines[i];
+    if(/^\s*```/.test(l)){
+      i++; let buf=[];
+      while(i<lines.length && !/^\s*```/.test(lines[i])){ buf.push(esc(lines[i])); i++; }
+      i++; html+='<pre><code>'+buf.join('\n')+'</code></pre>'; continue;
+    }
+    if(/^\s*(\*\*\*|---|___)\s*$/.test(l)){ html+='<hr>'; i++; continue; }
+    let h = l.match(/^(#{1,4})\s+(.*)$/);
+    if(h){ const n=h[1].length; html+='<h'+n+'>'+mdInline(h[2])+'</h'+n+'>'; i++; continue; }
+    if(l.includes('|') && i+1<lines.length && isTableSep(lines[i+1])){
+      const head=cells(l); i+=2; let rows=[];
+      while(i<lines.length && lines[i].includes('|') && lines[i].trim()!==''){ rows.push(cells(lines[i])); i++; }
+      html+='<table><thead><tr>'+head.map(c=>'<th>'+mdInline(c)+'</th>').join('')+'</tr></thead><tbody>'
+        + rows.map(r=>'<tr>'+r.map(c=>'<td>'+mdInline(c)+'</td>').join('')+'</tr>').join('') + '</tbody></table>';
+      continue;
+    }
+    if(/^\s*>\s?/.test(l)){
+      let buf=[];
+      while(i<lines.length && /^\s*>\s?/.test(lines[i])){ buf.push(mdInline(lines[i].replace(/^\s*>\s?/,''))); i++; }
+      html+='<blockquote>'+buf.join('<br>')+'</blockquote>'; continue;
+    }
+    if(/^\s*([-*+]|\d+[.)])\s+/.test(l)){
+      const ordered=/^\s*\d+[.)]\s+/.test(l);
+      let buf=[];
+      while(i<lines.length && /^\s*([-*+]|\d+[.)])\s+/.test(lines[i])){
+        buf.push('<li>'+mdInline(lines[i].replace(/^\s*([-*+]|\d+[.)])\s+/,''))+'</li>'); i++;
+      }
+      html+=(ordered?'<ol>':'<ul>')+buf.join('')+(ordered?'</ol>':'</ul>'); continue;
+    }
+    if(l.trim()===''){ i++; continue; }
+    let buf=[];
+    while(i<lines.length && lines[i].trim()!=='' && !/^\s*(#{1,4}\s|[-*+]\s|\d+[.)]\s|>|```)/.test(lines[i])
+          && !(lines[i].includes('|') && i+1<lines.length && isTableSep(lines[i+1]))){
+      buf.push(mdInline(lines[i])); i++;
+    }
+    html+='<p>'+buf.join('<br>')+'</p>';
+  }
+  return html;
 }
 
 function render(){
@@ -196,8 +272,8 @@ function render(){
         <div class="task">${esc(it.task)}</div>
       </div>
       <div class="cols">
-        <div class="col A"><h3>系统 A 的答复</h3><div class="answer">${linkify(it.A_answer)}</div></div>
-        <div class="col B"><h3>系统 B 的答复</h3><div class="answer">${linkify(it.B_answer)}</div></div>
+        <div class="col A"><h3>系统 A 的答复</h3><div class="answer md">${mdRender(it.A_answer)}</div></div>
+        <div class="col B"><h3>系统 B 的答复</h3><div class="answer md">${mdRender(it.B_answer)}</div></div>
       </div>
       <div class="rate">
         <div class="rate-grid">
